@@ -3,7 +3,7 @@
 SAVIS (Sentence-level Attention VISualization) is a Python library for visualizing inter-sentence attention in large language models (LLMs), specifically designed for public relations (PR) analysis. This tool enhances the interpretability of LLMs by providing an intuitive visualization of how attention is distributed across sentences in generated text.
 
 <center>
-<img src="https://raw.githubusercontent.com/Seongbuming/savis/main/images/savis.png" width="500" alt="SAVIS analyzing reviews">
+<img src="https://raw.githubusercontent.com/Seongbuming/savis/master/images/savis.png" width="500" alt="SAVIS analyzing reviews">
 </center>
 
 ## Features
@@ -55,4 +55,4 @@ These components work together to provide a comprehensive pipeline from text gen
 
 ## License
 
-SAVIS is released under the MIT License. See the [LICENSE](https://github.com/Seongbuming/savis/blob/main/LICENSE.md) file for more details.
+SAVIS is released under the MIT License. See the [LICENSE](https://github.com/Seongbuming/savis/blob/master/LICENSE.md) file for more details.
