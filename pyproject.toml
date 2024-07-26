@@ -33,7 +33,7 @@ requires-python = ">=3.10"
 Homepage = "https://github.com/Seongbuming/savis"
 Repository = "https://github.com/Seongbuming/savis"
 Documentation = "https://github.com/Seongbuming/savis#readme"
-"Bug Tracker" = "https://github.com/yourusername/savis/issues"
+"Bug Tracker" = "https://github.com/Seongbuming/savis/issues"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/savis"]
