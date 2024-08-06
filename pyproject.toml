@@ -4,11 +4,11 @@ build-backend = "hatchling.build"
 
 [project]
 name = "savis"
-version = "0.3.4"
+version = "0.3.5"
 description = "A sentence-level visualization tool for attention in large language models"
 readme = "README.md"
 authors = [{ name = "Seongbum Seo", email = "seo@seongbum.com" }]
-license = { file = "LICENSE.md" }
+license = { file = "LICENSE" }
 classifiers = [
     "Development Status :: 4 - Beta",
     "Intended Audience :: Developers",
@@ -33,7 +33,7 @@ requires-python = ">=3.10"
 Homepage = "https://github.com/Seongbuming/savis"
 Repository = "https://github.com/Seongbuming/savis"
 Documentation = "https://github.com/Seongbuming/savis#readme"
-"Bug Tracker" = "https://github.com/yourusername/savis/issues"
+"Bug Tracker" = "https://github.com/Seongbuming/savis/issues"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/savis"]

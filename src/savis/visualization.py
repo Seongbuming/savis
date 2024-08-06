@@ -12,12 +12,12 @@ class ISAVisualization:
         self.sentence_attention = sentence_attention
         self.sentences = sentences
 
-    def visualize_sentence_attention(self):
+    def visualize_sentence_attention(self, figsize=(15,10)):
         num_sentences = len(self.sentences)
 
         # fig = plt.figure(figsize=(num_sentences/2+2, num_sentences/3+1))
-        fig = plt.figure(figsize=(num_sentences/2, num_sentences/3))
-        gs = gridspec.GridSpec(2, 2, height_ratios=[5, 0.2], width_ratios=[1, 1], hspace=0.3)
+        fig = plt.figure(figsize=figsize)
+        gs = gridspec.GridSpec(2, 2, height_ratios=[5, 0.2], width_ratios=[2, 1], hspace=0.3, wspace=0.3)
 
         ax = plt.subplot(gs[0, 0])
         ax.set_xlim(-0.5, num_sentences-0.5)
@@ -48,12 +48,17 @@ class ISAVisualization:
         color_values = np.array([cmap(val) if val > 0 else (1, 1, 1, 1) for val in colors_np])
 
         # 모든 포인트를 포함하여 scatter 플롯 생성
-        scatter = ax.scatter(x, y, color=color_values, cmap=cmap, s=150, edgecolors='none')
+        ax_width = figsize[0] / 2
+        size = ax_width / num_sentences * 500
+        scatter = ax.scatter(x, y, color=color_values, cmap=cmap, s=size, edgecolors='none')
 
         ax.set_xticks(np.arange(num_sentences))
         ax.set_yticks(np.arange(num_sentences))
+        fontsize = 8
+        ax.set_xticklabels(labels=np.arange(num_sentences), fontsize=fontsize)
+        ax.set_yticklabels(labels=np.arange(num_sentences), fontsize=fontsize)
 
-        plt.grid(False)
+        # plt.grid(False)
 
         # 텍스트 영역 추가
         text_ax = plt.subplot(gs[0, 1])
@@ -114,6 +119,56 @@ class ISAVisualization:
         # 컬러바 추가
         fig.colorbar(cax)
         
+        plt.show()
+
+    def visualize_token_attention_heatmap(self, attentions, tokenizer, input_ids, layer=-1, head=None, figsize=(50,50)):
+        import seaborn as sns
+
+        # 마지막 레이어의 어텐션 가져오기
+        if isinstance(attentions[0], tuple):
+            layer_attention = attentions[layer][0]  # shape: (batch_size, num_heads, seq_len, seq_len)
+        else:
+            layer_attention = attentions[layer]  # shape: (batch_size, num_heads, seq_len, seq_len)
+
+        # 배치 차원과 헤드 차원에 대해 평균 계산
+        if head is None:
+            attention = layer_attention.mean(dim=(0,1)).cpu().numpy()
+        else:
+            attention = layer_attention[:, head].mean(dim=0).cpu().numpy()
+
+        # 토큰 디코딩
+        tokens = tokenizer.convert_ids_to_tokens(input_ids[0])
+        num_tokens = len(tokens)
+        print(f"Total number of tokens: {num_tokens}")
+
+        # 커스텀 그라디언트 색상 맵 생성
+        custom_colors = ["black", "blue", "cyan", "lime", "yellow", "orange", "red"]
+        cmap = LinearSegmentedColormap.from_list("custom_gradient", custom_colors)
+
+        # 히트맵 생성
+        plt.figure(figsize=figsize)
+        
+        # vmin을 0으로, vmax를 1로 설정하여 전체 범위 사용
+        vmin, vmax = 0, 1
+        
+        sns.heatmap(attention, 
+                    xticklabels=tokens, 
+                    yticklabels=tokens, 
+                    cmap=cmap, 
+                    square=True,
+                    vmin=vmin,
+                    vmax=vmax,
+                    annot=False,
+                    cbar_kws={"shrink": .8})
+
+        plt.title("Token-Level Attention Heatmap", fontsize=20)
+        plt.xlabel("Target Tokens", fontsize=16)
+        plt.ylabel("Source Tokens", fontsize=16)
+
+        # x축 레이블 회전
+        plt.xticks(rotation=90, ha='right', fontsize=8)
+        plt.yticks(fontsize=8)
+        plt.tight_layout()
         plt.show()
 
     def _wrap_text(self, text, width):

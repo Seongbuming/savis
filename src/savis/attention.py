@@ -2,23 +2,34 @@ import torch
 import re
 import nltk
 from nltk.tokenize import sent_tokenize
-from transformers import AutoModelForCausalLM, AutoTokenizer
+from transformers import AutoModelForCausalLM, AutoModel, AutoTokenizer
 
 class Attention:
     def __init__(self, model_name, **kwargs):
         self.tokenizer = AutoTokenizer.from_pretrained(model_name, **kwargs)
-        self.model = AutoModelForCausalLM.from_pretrained(model_name, device_map="auto", output_attentions=True, **kwargs)
+        if any(model in model_name.lower() for model in ["gpt", "llama", "gemma"]):
+            self.model = AutoModelForCausalLM.from_pretrained(model_name, device_map="auto", output_attentions=True, **kwargs)
+        else:
+            self.model = AutoModel.from_pretrained(model_name, device_map="auto", output_attentions=True, **kwargs)
 
-    def get_attention_for_texts(self, text_x, text_y):
-        text_combined = text_x + "\n" + text_y
-        input_ids = self.tokenizer(text_combined, return_tensors="pt").input_ids.to("cuda")
-        outputs = self.model(input_ids, output_attentions=True)
-        attentions_combined = outputs.attentions
+    def get_attention_for_texts(self, text_x, text_y=None):
+        if hasattr(self.model, 'generate'):
+            input_ids = self.tokenizer(text_x, return_tensors="pt").input_ids.to("cuda")
+            outputs = self.model.generate(input_ids, max_new_tokens=1, output_attentions=True, return_dict_in_generate=True, stopping_criteria=None)
+            generated_text = self.tokenizer.decode(outputs.sequences[0], skip_special_tokens=True)
+            attentions = outputs.attentions
 
-        tokens_x = self.tokenizer(text_x, return_tensors="pt").input_ids.to("cuda")
-        x_seq_len = tokens_x.size(1)
+            return generated_text, attentions, self.tokenizer, input_ids, outputs
+        else:
+            text_combined = text_x + "\n" + text_y
+            input_ids = self.tokenizer(text_combined, return_tensors="pt").input_ids.to("cuda")
+            outputs = self.model(input_ids, output_attentions=True)
+            attentions_combined = outputs.attentions
 
-        return x_seq_len, attentions_combined, self.tokenizer, input_ids, outputs
+            tokens_x = self.tokenizer(text_x, return_tensors="pt").input_ids.to("cuda")
+            x_seq_len = tokens_x.size(1)
+
+            return x_seq_len, attentions_combined, self.tokenizer, input_ids, outputs
 
 class ISA:
     def __init__(self, generated_sequences, attentions, tokenizer):
