@@ -55,4 +55,4 @@ These components work together to provide a comprehensive pipeline from text gen
 
 ## License
 
-SAVIS is released under the MIT License. See the [LICENSE](https://github.com/Seongbuming/savis/blob/master/LICENSE.md) file for more details.
+SAVIS is released under the MIT License. See the [LICENSE](https://github.com/Seongbuming/savis/blob/master/LICENSE) file for more details.

@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "savis"
-version = "0.3.5"
+version = "0.3.6"
 description = "A sentence-level visualization tool for attention in large language models"
 readme = "README.md"
 authors = [{ name = "Seongbum Seo", email = "seo@seongbum.com" }]

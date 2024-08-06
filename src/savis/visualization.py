@@ -70,11 +70,11 @@ class ISAVisualization:
             cont, ind = scatter.contains(event)
             if cont:
                 index = ind["ind"][0]
-                index_x = index // num_sentences
-                index_y = index % num_sentences
-                generated_sentence = self._wrap_text(self.sentences[index_y], 50)
-                focused_sentence = self._wrap_text(self.sentences[index_x], 50)
-                attention = f"{self.sentence_attention[index_y, index_x]:.5f}"
+                index_x = index % num_sentences
+                index_y = index // num_sentences
+                generated_sentence = self._wrap_text(self.sentences[index_x], 50)
+                focused_sentence = self._wrap_text(self.sentences[index_y], 50)
+                attention = f"{self.sentence_attention[index_x, index_y]:.5f}"
                 # text.set_text(f"[x = {index_x}] Generated Sentence\n{generated_sentence}\n\n[y = {index_y}] Focused Sentence\n{focused_sentence}\n\nISA: {attention}")
                 # text.set_text(f"Generated Sentence: {sentences[index_y]}\n\nFocused Sentence: {sentences[index_x]}\n\nAttention: {sentence_attention[index_y, index_x]}")
                 text_ax.clear()
