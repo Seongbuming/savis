@@ -1,3 +1,4 @@
+import torch
 import matplotlib
 import matplotlib.pyplot as plt
 import matplotlib.gridspec as gridspec
@@ -177,3 +178,121 @@ class ISAVisualization:
         """
         return '\n'.join(textwrap.wrap(text, width))
 
+    def visualize_sentence_token_attention(self, attentions, tokenizer, input_ids, sentence_boundaries, sentences, sent_x_idx, sent_y_idx, layer_idx=None, head_idx=None):
+        """
+        두 문장 간의 토큰 단위 어텐션 시각화
+        
+        Parameters:
+            attentions: 모델의 어텐션 값
+            tokenizer: 토크나이저
+            input_ids: 입력 토큰 ID
+            sentence_boundaries: 문장 경계 인덱스 리스트
+            sentences: 문장 리스트
+            sent_x_idx: X 문장 인덱스
+            sent_y_idx: Y 문장 인덱스
+            layer_idx: 시각화할 레이어 인덱스 (None이면 사용자가 선택)
+            head_idx: 시각화할 헤드 인덱스 (None이면 사용자가 선택)
+        """
+        if isinstance(attentions[0], tuple):
+            num_layers = len(attentions)
+            num_heads = attentions[0][0].shape[1]
+        else:
+            num_layers = len(attentions)
+            num_heads = attentions[0].shape[1]
+
+        # 문장 범위 설정
+        x_start = sentence_boundaries[sent_x_idx]
+        x_end = sentence_boundaries[sent_x_idx + 1]
+        y_start = sentence_boundaries[sent_y_idx]
+        y_end = sentence_boundaries[sent_y_idx + 1]
+
+        # 토큰 리스트 생성
+        tokens = tokenizer.convert_ids_to_tokens(input_ids[0])
+        x_tokens = tokens[x_start:x_end]
+        y_tokens = tokens[y_start:y_end]
+
+        # UI 설정
+        if layer_idx is None or head_idx is None:
+            fig = plt.figure(figsize=(15, 12))
+            gs = gridspec.GridSpec(3, 2, height_ratios=[1, 5, 1])
+            
+            # 문장 텍스트 표시 영역
+            ax_sentences = plt.subplot(gs[0, :])
+            ax_sentences.axis('off')
+            ax_sentences.text(0.1, 0.7, f"X 문장 ({sent_x_idx}): {sentences[sent_x_idx]}", wrap=True)
+            ax_sentences.text(0.1, 0.3, f"Y 문장 ({sent_y_idx}): {sentences[sent_y_idx]}", wrap=True)
+            
+            # 히트맵 영역
+            ax_heatmap = plt.subplot(gs[1, :])
+            
+            # 슬라이더 영역
+            ax_layer = plt.subplot(gs[2, 0])
+            ax_head = plt.subplot(gs[2, 1])
+
+            current_layer = 0
+            current_head = 0
+
+            from matplotlib.widgets import Slider
+            slider_layer = Slider(ax_layer, 'Layer', 0, num_layers-1, valinit=0, valstep=1)
+            slider_head = Slider(ax_head, 'Head', 0, num_heads-1, valinit=0, valstep=1)
+
+            def update_plot(val):
+                nonlocal current_layer, current_head
+                current_layer = int(slider_layer.val)
+                current_head = int(slider_head.val)
+                ax_heatmap.clear()
+                plot_attention_heatmap(current_layer, current_head)
+                fig.canvas.draw_idle()
+
+            slider_layer.on_changed(update_plot)
+            slider_head.on_changed(update_plot)
+        else:
+            fig = plt.figure(figsize=(12, 10))
+            gs = gridspec.GridSpec(2, 1, height_ratios=[1, 5])
+            
+            ax_sentences = plt.subplot(gs[0])
+            ax_sentences.axis('off')
+            ax_sentences.text(0.1, 0.7, f"Sentence X ({sent_x_idx}): {sentences[sent_x_idx]}", wrap=True)
+            ax_sentences.text(0.1, 0.3, f"Sentence Y ({sent_y_idx}): {sentences[sent_y_idx]}", wrap=True)
+            
+            ax_heatmap = plt.subplot(gs[1])
+            current_layer = layer_idx
+            current_head = head_idx
+
+        def plot_attention_heatmap(layer, head):
+            # 어텐션 값 추출
+            if isinstance(attentions[0], tuple):
+                attention = attentions[layer][0][0, head].cpu().numpy()
+            else:
+                attention = attentions[layer][0, head].cpu().numpy()
+
+            # 두 문장 간의 어텐션만 추출
+            attention_subset = attention[y_start:y_end, x_start:x_end]
+            
+            # 히트맵 생성
+            im = ax_heatmap.imshow(attention_subset, cmap='Blues')
+            
+            # 토큰 레이블 추가
+            ax_heatmap.set_xticks(np.arange(len(x_tokens)))
+            ax_heatmap.set_yticks(np.arange(len(y_tokens)))
+            ax_heatmap.set_xticklabels(x_tokens, rotation=45, ha='right')
+            ax_heatmap.set_yticklabels(y_tokens)
+            
+            plt.colorbar(im, ax=ax_heatmap)
+            ax_heatmap.set_title(f'Layer {layer+1}, Head {head+1} - Attention between sentences {sent_x_idx} and {sent_y_idx}')
+
+            # 마우스 호버 이벤트 처리
+            def on_hover(event):
+                if event.inaxes == ax_heatmap:
+                    x, y = int(event.xdata), int(event.ydata)
+                    if 0 <= x < len(x_tokens) and 0 <= y < len(y_tokens):
+                        hover_text = f"From: {y_tokens[y]}\nTo: {x_tokens[x]}\nAttention: {attention_subset[y, x]:.4f}"
+                        ax_heatmap.set_title(hover_text)
+                        fig.canvas.draw_idle()
+
+            fig.canvas.mpl_connect('motion_notify_event', on_hover)
+
+        # 초기 플롯 생성
+        plot_attention_heatmap(current_layer, current_head)
+        plt.tight_layout()
+        plt.show()

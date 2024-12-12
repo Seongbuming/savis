@@ -46,6 +46,7 @@ class ISA:
         sentence_attention_heads = self._calculate_sentence_attention(integrated_attentions, sentence_boundaries)
         sentence_attention = self._aggregate_attention(sentence_attention_heads)
 
+        self.sentence_boundaries = sentence_boundaries
         self.sentences = sentences
         self.sentence_attention_heads = sentence_attention_heads
         self.sentence_attention = sentence_attention
