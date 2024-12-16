@@ -241,6 +241,7 @@ class ISAVisualization:
             colorbar = None
 
             def create_sliders():
+                nonlocal slider_layer, slider_head
                 # 슬라이더 영역의 위치 가져오기
                 slider_bbox = ax_slider_area.get_position()
                 
