@@ -1,8 +1,7 @@
 import torch
 import re
 import nltk
-from nltk.tokenize import sent_tokenize
-from transformers import AutoModelForCausalLM, AutoModel, AutoTokenizer
+from transformers import AutoModelForCausalLM, AutoModel, AutoTokenizer, PreTrainedTokenizer
 
 class Attention:
     def __init__(self, model_name, **kwargs):
@@ -12,7 +11,11 @@ class Attention:
         else:
             self.model = AutoModel.from_pretrained(model_name, device_map="auto", output_attentions=True, **kwargs)
 
-    def get_attention_for_texts(self, text_x, text_y=None):
+    def get_attention_for_texts(self, text_x: str, text_y: str=None):
+        # text_x = text_x.replace('\n', self.tokenizer.sep_token)
+        # if text_y:
+        #     text_y = text_y.replace('\n', self.tokenizer.sep_token)
+        
         if hasattr(self.model, 'generate'):
             input_ids = self.tokenizer(text_x, return_tensors="pt").input_ids.to("cuda")
             outputs = self.model.generate(input_ids, max_new_tokens=1, output_attentions=True, return_dict_in_generate=True, stopping_criteria=None)
@@ -21,7 +24,7 @@ class Attention:
 
             return generated_text, attentions, self.tokenizer, input_ids, outputs
         else:
-            text_combined = text_x + "\n" + text_y
+            text_combined = '\n'.join([text_x, text_y])
             input_ids = self.tokenizer(text_combined, return_tensors="pt").input_ids.to("cuda")
             outputs = self.model(input_ids, output_attentions=True)
             attentions_combined = outputs.attentions
@@ -33,46 +36,81 @@ class Attention:
 
 class ISA:
     def __init__(self, generated_sequences, attentions, tokenizer):
-        self.tokenizer = tokenizer
+        self.tokenizer: PreTrainedTokenizer = tokenizer
+        self.attention_type = 'enc' if isinstance(attentions[0], torch.Tensor) else 'dec'
 
         nltk.download('punkt')
 
-        # 문장을 마침표 기준으로 분리
+        # 문장별로 분리
         # sentences = [sentence.strip() for sentence in generated_text.split('\n') if sentence.strip()]
-        sentence_boundaries, sentences = self._find_sentence_boundaries(generated_sequences)
+        sentence_boundaries_text, sentence_boundaries_ids, sentences = self._find_sentence_boundaries(generated_sequences)
 
         # 문장 간 attention 계산
-        integrated_attentions = self._integrate_attentions(attentions)
-        sentence_attention_heads = self._calculate_sentence_attention(integrated_attentions, sentence_boundaries)
+        layer_attentions = self._integrate_steps(attentions)
+        head_attentions = self._integrate_layers(layer_attentions)
+        sentence_attention_heads = self._calculate_sentence_attention(head_attentions, sentence_boundaries_ids)
         sentence_attention = self._aggregate_attention(sentence_attention_heads)
 
+        self.sequences = generated_sequences
+        self.sentence_boundaries_text = sentence_boundaries_text
+        self.sentence_boundaries_ids = sentence_boundaries_ids
         self.sentences = sentences
+        self.attentions = attentions
+        self.layer_attentions = layer_attentions
+        self.head_attentions = head_attentions
         self.sentence_attention_heads = sentence_attention_heads
         self.sentence_attention = sentence_attention
     
-    def _integrate_attentions(self, attentions):
-        if isinstance(attentions[0], torch.Tensor):
+    def _integrate_steps(self, attentions):
+        if self.attention_type == 'enc':
             # 문장 관계
-            num_layers = len(attentions)
-            _, num_heads, max_seq_length, _ = attentions[0].shape
-
-            integrated = torch.zeros((1, num_heads, max_seq_length-1, max_seq_length-1), device=attentions[0].device)
-            stacked_attentions = torch.stack([att[0] for att in attentions], dim=0)
-            integrated = torch.max(stacked_attentions[:, :, 1:, 1:], dim=0)[0]
-            integrated = integrated.unsqueeze(0) # shape: (1, num_heads, max_seq_length-1, max_seq_length-1)
+            # shape: (num_layers, batch_size, num_heads, max_seq_length, max_seq_length)
+            return attentions
         else:
             # 생성 모델
-            num_layers = len(attentions)
-            _, num_heads, prompt_seq_length, _ = attentions[0][-1].shape
-            max_seq_length = attentions[-1][-1].shape[-1]
+            self.attention_type = 'dec'
+            num_layers = len(attentions[0])  # 레이어 수
+            batch_size, num_heads = attentions[0][0].shape[:2]  # 배치 크기, 헤드 수
+            final_seq_len = attentions[-1][-1].shape[-1]  # 최종 시퀀스 길이
 
-            integrated = torch.zeros((1, num_heads, max_seq_length, max_seq_length))
-            integrated[0, :, :prompt_seq_length, :prompt_seq_length] = attentions[0][-1] # 0번째 레이어(프롬프트 간의 attention을 가짐)의 마지막 히든 레이어의 heads들은 그대로 붙임
-            # 나머지 레이어들(생성된 토큰들과 이전 토큰들의 attention을 가짐)의 마지막 히든 레이어의 heads들을 이어붙임
-            for layer in range(1, num_layers):
-                integrated[0, :, prompt_seq_length+layer:prompt_seq_length+layer+1, :prompt_seq_length+layer] = attentions[layer][-1][0]
-            
-        return integrated # shape: (1, num_heads, max_seq_length, max_seq_length)
+            # 최종 합쳐진 어텐션을 저장할 텐서
+            integrated = torch.zeros(
+                num_layers, batch_size, num_heads, final_seq_len, final_seq_len
+            ).to(attentions[0][0].device)
+
+            for step_idx, step_attention in enumerate(attentions):
+                for layer_idx, layer_attention in enumerate(step_attention):
+                    current_seq_len = layer_attention.shape[-1]  # 현재 스텝의 시퀀스 길이
+
+                    if step_idx == 0:
+                        # 첫 스텝은 입력 토큰의 어텐션으로 채움
+                        integrated[layer_idx, :, :, :current_seq_len, :current_seq_len] = layer_attention
+                    else:
+                        # 새로 생성된 토큰의 어텐션 값만 추가
+                        integrated[layer_idx, :, :, current_seq_len-1:current_seq_len, :current_seq_len] = layer_attention
+        
+            # shape: (num_layers, batch_size, num_heads, max_seq_length, max_seq_length)
+            return integrated
+
+    def _integrate_layers(self, attentions):
+        if self.attention_type == 'enc':
+            # 문장 관계
+            # attentions shape: (num_layers, batch_size, num_heads, max_seq_length, max_seq_length)
+            _, num_heads, max_seq_length, _ = attentions[0].shape
+
+            # 레이어별 어텐션을 합치기 위해 (num_layers, batch_size, num_heads, max_seq_length, max_seq_length)로 스택
+            stacked_attentions = torch.stack(attentions, dim=0)  # shape: (num_layers, batch_size, num_heads, max_seq_length, max_seq_length)
+
+            # 어텐션 결합 방법: Max pooling
+            integrated = torch.max(stacked_attentions, dim=0)[0]  # (batch_size, num_heads, max_seq_length, max_seq_length)
+        else:
+            # num_layers, batch_size, num_heads, max_seq_length, _ = attentions.shape[0]
+
+            # Max pooling
+            integrated = torch.max(attentions, dim=0)[0]  # shape: (batch_size, num_heads, max_seq_length, max_seq_length)
+
+        # shape: (batch_size, num_heads, max_seq_length, max_seq_length)
+        return integrated
     
     def _aggregate_attention(self, sentence_attentions):
         # input shape: (1, num_heads, num_sentences, num_sentences)
@@ -83,59 +121,43 @@ class ISA:
     def _remove_tags(self, text):
         # 태그 제거
         return re.sub(r'<[^>]+>', '', text)
-
+    
     def _find_sentence_boundaries(self, sequences):
-        # 전체 텍스트 디코딩
-        full_text = self.tokenizer.decode(sequences)
-
-        # 태그 제거
-        full_text = self._remove_tags(full_text)
-
-        # 줄바꿈을 기준으로 텍스트 나누기
-        lines = full_text.split('\n')
-
         sentences = []
-        boundaries = [0]
-        current_position = 0
+        sentence_boundaries_text = [0]
+        sentence_boundaries_ids = [0]
+        tokens = self.tokenizer.convert_ids_to_tokens(sequences)
 
-        for line in lines:
-            if line.strip(): # 빈 줄 무시
-                # 각 줄에 대해 NLTK sent_tokenize 적용
-                line_sentences = sent_tokenize(line)
-                sentences.extend(line_sentences)
+        for idx_i, token_i in enumerate(tokens):
+            if token_i == '\n' or '\n' in token_i or idx_i == len(tokens)-1:
+                text = self.tokenizer.decode(sequences[:idx_i+1])
 
-                for sentence in line_sentences:
-                    current_position += len(self.tokenizer.encode(sentence, add_special_tokens=False))
-                    boundaries.append(current_position)
+                text_chunk = text[sentence_boundaries_text[-1]:]
+                nltk_sentences = nltk.sent_tokenize(text_chunk)
 
-        # 마지막 빈 문장 제거
-        if sentences and not sentences[-1].strip():
-            sentences.pop()
-            boundaries.pop()
+                idx_nltk = 0
+                idx_j = sentence_boundaries_ids[-1]
+                while idx_j < idx_i+1:
+                    if idx_nltk >= len(nltk_sentences):
+                        break
+                    nltk_sentence = nltk_sentences[idx_nltk]
+                    slice_start = sentence_boundaries_ids[-1]
+                    idx_j += 1
+
+                    text_slice = self.tokenizer.decode(sequences[slice_start:idx_j+1])
+                    if nltk_sentence in text_slice:
+                        sentences.append(text_slice)
+                        sentence_boundaries_text.append(len(self.tokenizer.decode(sequences[:idx_j+1])))
+                        sentence_boundaries_ids.append(idx_j+1)
+                        idx_nltk += 1
+                        continue
         
-        return boundaries, sentences
+        return sentence_boundaries_text, sentence_boundaries_ids, sentences
 
-    # def _find_sentence_boundaries(self, sequences):
-    #     boundaries = [0]
-    #     sentences = []
-
-    #     for i, token in enumerate(sequences):
-    #         decoded = self.tokenizer.decode(token)
-    #         if '\n' in decoded:
-    #             sentences.append(self.tokenizer.decode(sequences[boundaries[-1]:i]))
-    #             boundaries.append(i)
-
-    #     sentences.append(self.tokenizer.decode(sequences[boundaries[-1]:len(sequences)]))
-    #     boundaries.append(len(sequences))
-
-    #     return boundaries, sentences
-
-    def _calculate_sentence_attention(self, attentions, sentence_boundaries):
+    def _calculate_sentence_attention(self, attentions, sentence_boundaries_ids):
         # 문장 간 attention 계산
-        # num_layers = len(attentions)
-        # num_layers = 1
         _, num_heads, _, seq_length = attentions.shape # shape: (1, num_heads, seq_length, seq_length)
-        num_sentences = len(sentence_boundaries) - 1 # 시작점과 끝점을 포함하므로 1 뺌
+        num_sentences = len(sentence_boundaries_ids) - 1 # 시작점과 끝점을 포함하므로 1 뺌
 
         # 0으로 초기화
         sentence_attentions = torch.zeros((1, num_heads, num_sentences, num_sentences))
@@ -144,11 +166,11 @@ class ISA:
         # layer = 0
         for head in range(num_heads):
             for i in range(num_sentences):
-                start_i = sentence_boundaries[i]
-                end_i = sentence_boundaries[i + 1]
+                start_i = sentence_boundaries_ids[i]
+                end_i = sentence_boundaries_ids[i + 1]
                 for j in range(num_sentences):
-                    start_j = sentence_boundaries[j]
-                    end_j = sentence_boundaries[j + 1]
+                    start_j = sentence_boundaries_ids[j]
+                    end_j = sentence_boundaries_ids[j + 1]
                     # 문장 범위 내 텐서 추출
                     attention_slice = attentions[0, head, start_i:end_i, start_j:end_j]
                     
@@ -160,3 +182,51 @@ class ISA:
                     sentence_attentions[0, head, i, j] = max_attention # 각 헤드 내에서 i번째 문장관 j번째 문장의 attention
 
         return sentence_attentions # shape: (1, num_heads, num_sentences, num_sentences)
+    
+    def get_sentence_token_attention(self, sentence_x_idx=None, sentence_y_idx=None):
+        """
+        BertViz 시각화에 필요한 데이터를 준비하는 함수
+        
+        Parameters:
+            sentence_x_idx: 첫 번째 문장의 인덱스
+            sentence_y_idx: 두 번째 문장의 인덱스
+        
+        Returns:
+            attention_data: bertviz 포맷의 어텐션 데이터
+            tokens: 토큰 리스트
+            sentence_b_start: 두 번째 문장의 시작 인덱스 (해당하는 경우)
+        """
+        # 토큰 준비
+        tokens = self.tokenizer.convert_ids_to_tokens(self.sequences)
+
+        # 문장 경계 처리
+        x_start = self.sentence_boundaries_ids[sentence_x_idx]
+        x_end = self.sentence_boundaries_ids[sentence_x_idx + 1]
+        y_start = self.sentence_boundaries_ids[sentence_y_idx]
+        y_end = self.sentence_boundaries_ids[sentence_y_idx + 1]
+
+        # 두 문장의 토큰 결합
+        combined_tokens = tokens[x_start:x_end] + tokens[y_start:y_end]
+
+        # 어텐션 데이터 준비
+        if self.attention_type == 'dec':  # 생성 모델의 경우
+            num_layers = len(self.attentions[0])
+            attention_data = []
+
+            for layer in range(num_layers):
+                sent_x_self_attention = self.layer_attentions[layer, :, :, x_start:x_end, x_start:x_end]  # x->x
+                sent_y_self_attention = self.layer_attentions[layer, :, :, y_start:y_end, y_start:y_end]  # y->y
+                sent_x_to_y_attention = self.layer_attentions[layer, :, :, x_start:x_end, y_start:y_end]  # x->y
+                sent_y_to_x_attention = self.layer_attentions[layer, :, :, y_start:y_end, x_start:x_end]  # y->x
+
+                # Attention 결합
+                sent_x_combined = torch.cat((sent_x_self_attention, sent_x_to_y_attention), dim=3)
+                sent_y_combined = torch.cat((sent_y_to_x_attention, sent_y_self_attention), dim=3)
+                combined_attention = torch.cat((sent_x_combined, sent_y_combined), dim=2)
+
+                layer_attention = combined_attention[0].unsqueeze(0)  # batch 차원 추가
+                attention_data.append(layer_attention)
+        else:  # BERT 계열 모델의 경우
+            attention_data = [att.unsqueeze(0) for att in self.attentions]  # batch 차원 추가
+
+        return attention_data, combined_tokens, x_end-x_start
