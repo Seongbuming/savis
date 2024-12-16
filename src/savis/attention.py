@@ -1,5 +1,6 @@
 import torch
 import re
+import nltk
 from transformers import AutoModelForCausalLM, AutoModel, AutoTokenizer, PreTrainedTokenizer
 
 class Attention:
@@ -37,6 +38,8 @@ class ISA:
     def __init__(self, generated_sequences, attentions, tokenizer):
         self.tokenizer: PreTrainedTokenizer = tokenizer
         self.attention_type = 'enc' if isinstance(attentions[0], torch.Tensor) else 'dec'
+
+        nltk.download('punkt')
 
         # 문장별로 분리
         # sentences = [sentence.strip() for sentence in generated_text.split('\n') if sentence.strip()]
@@ -120,23 +123,36 @@ class ISA:
         return re.sub(r'<[^>]+>', '', text)
     
     def _find_sentence_boundaries(self, sequences):
-        newline_token_id = self.tokenizer.convert_tokens_to_ids('\n')
         sentences = []
-        text_boundaries = [0]
-        sequence_boundaries = [0]
-        current_position = 0
+        sentence_boundaries_text = [0]
+        sentence_boundaries_ids = [0]
+        tokens = self.tokenizer.convert_ids_to_tokens(sequences)
 
-        for idx, token in enumerate(sequences):
-            token_id = token.to('cpu').item()
-            if token_id == newline_token_id:
-                current_text = self.tokenizer.decode(sequences[:idx])
-                current_position = len(current_text)
+        for idx_i, token_i in enumerate(tokens):
+            if token_i == '\n' or '\n' in token_i or idx_i == len(tokens)-1:
+                text = self.tokenizer.decode(sequences[:idx_i+1])
 
-                sentences.append(current_text[text_boundaries[-1]:])
-                text_boundaries.append(current_position)
-                sequence_boundaries.append(idx)
+                text_chunk = text[sentence_boundaries_text[-1]:]
+                nltk_sentences = nltk.sent_tokenize(text_chunk)
+
+                idx_nltk = 0
+                idx_j = sentence_boundaries_ids[-1]
+                while idx_j < idx_i+1:
+                    if idx_nltk >= len(nltk_sentences):
+                        break
+                    nltk_sentence = nltk_sentences[idx_nltk]
+                    slice_start = sentence_boundaries_ids[-1]
+                    idx_j += 1
+
+                    text_slice = self.tokenizer.decode(sequences[slice_start:idx_j+1])
+                    if nltk_sentence in text_slice:
+                        sentences.append(text_slice)
+                        sentence_boundaries_text.append(len(self.tokenizer.decode(sequences[:idx_j+1])))
+                        sentence_boundaries_ids.append(idx_j+1)
+                        idx_nltk += 1
+                        continue
         
-        return text_boundaries, sequence_boundaries, sentences
+        return sentence_boundaries_text, sentence_boundaries_ids, sentences
 
     def _calculate_sentence_attention(self, attentions, sentence_boundaries_ids):
         # 문장 간 attention 계산
