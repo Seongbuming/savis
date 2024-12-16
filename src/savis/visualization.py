@@ -1,5 +1,3 @@
-import torch
-import matplotlib
 import matplotlib.pyplot as plt
 import matplotlib.gridspec as gridspec
 # import mplcursors
@@ -178,9 +176,9 @@ class ISAVisualization:
         """
         return '\n'.join(textwrap.wrap(text, width))
 
-    def visualize_sentence_token_attention(self, attentions, tokenizer, input_ids, sentence_boundaries, sentences, sent_x_idx, sent_y_idx, layer_idx=None, head_idx=None):
+    def visualize_sentence_token_attention_heatmap(self, attentions, tokenizer, input_ids, sentence_boundaries, sentences, sent_x_idx, sent_y_idx, layer_idx=None, head_idx=None):
         """
-        두 문장 간의 토큰 단위 어텐션 시각화
+        두 문장 간의 토큰 단위 어텐션 히트맵 시각화
         
         Parameters:
             attentions: 모델의 어텐션 값
@@ -219,8 +217,8 @@ class ISAVisualization:
             # 문장 텍스트 표시 영역
             ax_sentences = plt.subplot(gs[0, :])
             ax_sentences.axis('off')
-            ax_sentences.text(0.1, 0.7, f"X 문장 ({sent_x_idx}): {sentences[sent_x_idx]}", wrap=True)
-            ax_sentences.text(0.1, 0.3, f"Y 문장 ({sent_y_idx}): {sentences[sent_y_idx]}", wrap=True)
+            ax_sentences.text(0.1, 0.7, f"Sentence X ({sent_x_idx}): {sentences[sent_x_idx]}", wrap=True)
+            ax_sentences.text(0.1, 0.3, f"Sentence Y ({sent_y_idx}): {sentences[sent_y_idx]}", wrap=True)
             
             # 히트맵 영역
             ax_heatmap = plt.subplot(gs[1, :])

@@ -1,4 +1,4 @@
-import torch
+from nltk import sent_tokenize
 from transformers import AutoModelForCausalLM, AutoTokenizer, StoppingCriteria, StoppingCriteriaList
 
 class TextGenerator:
@@ -7,15 +7,29 @@ class TextGenerator:
         self.model = AutoModelForCausalLM.from_pretrained(model_name, device_map="auto", output_attentions=True, **kwargs)
 
     def generate_text(self, input_text, max_new_tokens=100, stop_newline=True):
-        input_ids = self.tokenizer(input_text, return_tensors="pt").input_ids.to("cuda")
+        input = self._apply_sep_token(input_text)
+
+        input_ids = self.tokenizer(input, return_tensors="pt").input_ids.to("cuda")
         if stop_newline:
             stopping_criteria = StoppingCriteriaList([StopOnNewLineCriteria(self.tokenizer)])
         else:
             stopping_criteria = None
-        outputs = self.model.generate(input_ids, max_new_tokens=max_new_tokens, output_attentions=True, return_dict_in_generate=True, stopping_criteria=stopping_criteria)
+        outputs = self.model.generate(
+            input_ids,
+            max_new_tokens=max_new_tokens,
+            output_attentions=True,
+            return_dict_in_generate=True,
+            stopping_criteria=stopping_criteria,
+            # repetition_penalty=1.2,
+            # no_repeat_ngram_size=2,
+        )
         generated_text = self.tokenizer.decode(outputs.sequences[0], skip_special_tokens=True)
         attentions = outputs.attentions
         return generated_text, attentions, self.tokenizer, input_ids, outputs
+
+    def _apply_sep_token(self, text):
+        line_sentences = sent_tokenize(text)
+        return '\n'.join(line_sentences)
 
 class StopOnNewLineCriteria(StoppingCriteria):
     def __init__(self, tokenizer):
