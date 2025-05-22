@@ -1,6 +1,6 @@
 # SAVIS: Sentence-Level Attention Visualization for Large Language Models
 
-SAVIS (Sentence-level Attention VISualization) is a Python library for visualizing inter-sentence attention in large language models (LLMs). This tool enhances the interpretability of LLMs by providing an intuitive visualization of how attention is distributed across sentences in generated text.
+**SAVIS** (**S**entence-Level **A**ttention **Vis**ualization) is a Python library for visualizing attention across sentences in texts processed by large language models (LLMs). This tool enhances the interpretability of LLMs by providing an intuitive visualization of how attention is distributed across sentences in generated text.
 
 This work has been accepted to NAACL 2025 (Annual Conference of the Nations of the Americas Chapter of the Association for Computational Linguistics) Demo. [📄 Read the paper](https://aclanthology.org/2025.naacl-demo.27). Citation details are available in the [Citation](#citation) section.
 
